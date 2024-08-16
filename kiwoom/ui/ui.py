@@ -7,7 +7,7 @@ class UI_class():
         print("UI 클래스 실행")
         
         self.app = QApplication(sys.argv)
-        Kiwoom()
+        self.kiwoom = Kiwoom()
         
         self.app.exec_()
         
