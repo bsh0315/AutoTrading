@@ -1,6 +1,7 @@
 from PyQt5.QAxContainer import *
 from PyQt5.QtCore import *
 from config.errorCode import *
+from PyQt5.QtTest import *
 
 class Kiwoom(QAxWidget):
     
@@ -11,20 +12,22 @@ class Kiwoom(QAxWidget):
         #### eventloop 모음 ###
         self.login_event_loop = None # 로그인 시
         self.detail_account_info_event_loop = QEventLoop() #  TR(Transaction Request)요청 시 사용
+        self.calcuator_event_loop = QEventLoop() # 종목 분석에 사용되는 이벤트 루프
         ###############################
         
         
         ##### 변수 모음 ########
         self.account_num = None # 내 계좌번호
         self.screen_my_info = "2000"
+        self.screen_calculation_stock = "4000"
         #######################
         
         #### 계좌관련 변수 #####
         self.use_money = 0 # 예수금
         self.use_money_percent = 0.7 # 예수금 중 실제로 매매에 사용할 비율
         self.buy_stock_quantity = 10 
-        self.accout_stock_dict = None # 계좌 내 종목들의 딕셔너리
-        self.not_account_stock_dict = None # 계좌 내 미체결 주문에 대한 딕셔너리
+        self.account_stock_dict = {} # 계좌 내 종목들의 딕셔너리
+        self.not_account_stock_dict = {} # 계좌 내 미체결 주문에 대한 딕셔너리
         ###########################
 
         self.get_ocx_instance()
@@ -34,6 +37,8 @@ class Kiwoom(QAxWidget):
         self.detail_account_info() # 예수금 가져오는 곳
         self.detail_account_mystock() # 계좌평가 잔고 내역 요청
         self.not_concluded_account() # 실시간 미체결 요청
+        
+        self.calculator_fnc() # 종목분석용 함수
         
     def get_ocx_instance(self):
         self.setControl("KHOPENAPI.KHOPENAPICtrl.1") # 키움 OpenAPI를 사용하기 위한 설정
@@ -95,11 +100,25 @@ class Kiwoom(QAxWidget):
         # 요청 후 이벤트 루프 실행
         self.detail_account_info_event_loop.exec_()
     
-    def not_concluded_account(self, sPrevNext="0"):
+    def not_concluded_account(self, sPrevNext="0"): # 미체결 종목 정보 불러오기
         self.dynamicCall("SetInputValue(QString, QString)", "계좌번호", self.account_num)
         self.dynamicCall("SetInputValue(QString, QString)", "체결구분", "1")
         self.dynamicCall("SetInputValue(QString, QString)", "매매구분", "0")
         self.dynamicCall("CommRqData(QString, QString, int, QString)", "실시간미체결요청", "opt10075", sPrevNext, self.screen_my_info)
+        
+        # 요청 후 이벤트 루프 실행
+        self.detail_account_info_event_loop.exec_()
+        
+    def day_kiwoom_db(self,code= None, date=None, sPrevNext = "0"):
+        
+        print("일봉데이터 요청")
+        self.dynamicCall("SetInputValue(QString, QString)", "종목코드", code)
+        self.dynamicCall("SetInputValue(QString, QString)", "수정주가구분", "1")
+        
+        if date != None:
+            self.dynamicCall("SetInputValue(QString, QString)", "기준일자", "date")
+        
+        self.dynamicCall("CommRqData(QString, QString, int, QString)", "주식일봉차트조회", "opt10081", sPrevNext, self.screen_my_info)
         
         # 요청 후 이벤트 루프 실행
         self.detail_account_info_event_loop.exec_()
@@ -160,11 +179,11 @@ class Kiwoom(QAxWidget):
                 stock_quantity  = self.dynamicCall("GetCommData(QString, QString, int, QString)", sTrCode, sRQName, i, "보유수량")
                 stock_avail_sell  = self.dynamicCall("GetCommData(QString, QString, int, QString)", sTrCode, sRQName, i, "매매가능수량")
                 stock_value  = self.dynamicCall("GetCommData(QString, QString, int, QString)", sTrCode, sRQName, i, "평가금액")
-                stock_position_rate  = self.dynamicCall("GetCommData(QString, QString, int, QString)", sTrCode, sRQName, i, "보유비중")
+                stock_position_rate  = self.dynamicCall("GetCommData(QString, QString, int, QString)", sTrCode, sRQName, i, "보유비중(%)")
                 
                 code = code.strip()[1:]
                 
-                if code in self.accout_stock_dict:
+                if code in self.account_stock_dict:
                     pass
                 else:
                     self.account_stock_dict.update({code : {}})
@@ -189,19 +208,20 @@ class Kiwoom(QAxWidget):
                 stock_position_rate = None # 전체 대비 보뮤비중
                 ##################
                 '''
+                asd = self.account_stock_dict[code]
                 
-                self.accout_stock_dict[code].update({"종목명" : stock_nm})
-                self.accout_stock_dict[code].update({"평가손익" : stock_profit})
-                self.accout_stock_dict[code].update({"수익률" : stock_profit_rate})
-                self.accout_stock_dict[code].update({"보유수량" : stock_quantity})
-                self.accout_stock_dict[code].update({"매매가능수량" : stock_avail_sell})
-                self.accout_stock_dict[code].update({"평가금액" : stock_value})
-                self.accout_stock_dict[code].update({"보유비중" : stock_position_rate})
+                asd.update({"종목명" : stock_nm})
+                asd.update({"평가손익" : stock_profit})
+                asd.update({"수익률(%)" : stock_profit_rate})
+                asd.update({"보유수량" : stock_quantity})
+                asd.update({"매매가능수량" : stock_avail_sell})
+                asd.update({"평가금액" : stock_value})
+                asd.update({"보유비중(%)" : stock_position_rate})
                 
                 cnt += 1
             
             print(f"계좌에 가지고 있는 종목 수 : {cnt}")
-            print(f"종목정보 : {self.accout_stock_dict}")
+            print(f"종목정보 : {self.account_stock_dict}")
             
             total_cnt += cnt
             
@@ -256,4 +276,46 @@ class Kiwoom(QAxWidget):
                 print(f"미체결 종목 정보 : {self.not_account_stock_dict[order_no]}")
                 
                 self.detail_account_info_event_loop.exit()
+
+        elif "주식일봉차트조회" == sRQName:
+            
+            code = self.dynamicCall("GetCommData(QString, QString, int, QString)", sTrCode, sRQName, 0, "종목코드")
+            print(f"일봉데이터 요청 {code}")
+            
+            if sPrevNext == "2":
+                self.day_kiwoom_db(code=code, sPrevNext=sPrevNext)
+            else:
+                self.calcuator_event_loop.exit()
                 
+                
+    def day_kiwoom_db(self,code= None, date=None, sPrevNext = "0"):
+        
+        print("일봉데이터 요청")
+        self.dynamicCall("SetInputValue(QString, QString)", "종목코드", code)
+        self.dynamicCall("SetInputValue(QString, QString)", "수정주가구분", "1")
+        
+        if date != None:
+            self.dynamicCall("SetInputValue(QString, QString)", "기준일자", "date")
+        
+        self.dynamicCall("CommRqData(QString, QString, int, QString)", "주식일봉차트조회", "opt10081", sPrevNext, self.screen_my_info)
+        
+        # 요청 후 이벤트 루프 실행
+        #self.calcuator_event_loop.exec()
+        
+    def get_code_list_market(self, market_code): # 특정 거래소의 종목코드들을 긁어옴.
+        code_list = self.dynamicCall("GetCodeListByMarket(QString)", market_code)
+        code_list = code_list.split(";")[:-1]
+        
+        return code_list
+    
+    def calculator_fnc(self): # 종목분석용 함수
+        code_list = self.get_code_list_market("10")
+        print(f"코스닥 종목 수 : {len(code_list)}")
+        
+        for idx, code in enumerate(code_list): # enumerate : 인덱스와 데이터를 같이 줌. enum(열거형)
+            self.dynamicCall("DisconnectRealData(QString)", self.screen_calculation_stock) # 스크린번호를 먼저 끊어줌, 기존의 데이터를 끊어줌.
+            
+            print(f"{idx+1} / {len(code_list)} : KOSDAQ Stock Code : {code} is updating... ")
+            
+            self.day_kiwoom_db(code=code)
+    
