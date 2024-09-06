@@ -2,6 +2,7 @@ from PyQt5.QAxContainer import *
 from PyQt5.QtCore import *
 from config.errorCode import *
 from PyQt5.QtTest import *
+import os
 
 class Kiwoom(QAxWidget):
     
@@ -20,6 +21,7 @@ class Kiwoom(QAxWidget):
         self.account_num = None # 내 계좌번호
         self.screen_my_info = "2000"
         self.screen_calculation_stock = "4000"
+        self.portfolio_stock_dict = {}# 주식 포트폴리오 딕셔너리임.
         #######################
         
         #### 계좌관련 변수 #####
@@ -42,7 +44,9 @@ class Kiwoom(QAxWidget):
         self.detail_account_mystock() # 계좌평가 잔고 내역 요청
         self.not_concluded_account() # 실시간 미체결 요청
         
-        self.calculator_fnc() # 종목분석용 함수
+    
+        #self.calculator_fnc() # 종목분석용 함수
+        self.read_code()  # 저장된 종목들 불러온다.   
         
     def get_ocx_instance(self):
         self.setControl("KHOPENAPI.KHOPENAPICtrl.1") # 키움 OpenAPI를 사용하기 위한 설정
@@ -241,6 +245,7 @@ class Kiwoom(QAxWidget):
             rows = self.dynamicCall("GetRepeatCnt(QString, QString)", sTrCode, sRQName)
         
             if rows == 0:
+                print("미체결 종목 없음")
                 self.detail_account_info_event_loop.exit()
             else:
                 for i in range(rows):
@@ -355,7 +360,7 @@ class Kiwoom(QAxWidget):
                     # 오늘자 주가가 120 이평선에 걸쳐있는지를 확인함.
                     bottom_stock_price = False
                     check_price = None
-                    if int(self.calcul_data[0][7] <= average_line_120 and average_line_120 <= self.calcul_data[0][6]):
+                    if int(self.calcul_data[0][7]) <= average_line_120 and average_line_120 <= int(self.calcul_data[0][6]):
                         print("오늘 주가 120이평선에 걸쳐있는 것 확인")
                         bottom_stock_price = True # 120일 이평선에 걸쳐있는것 확인
                         check_price = int(self.calcul_data[0][6]) # 고가를 저장함.
@@ -364,6 +369,7 @@ class Kiwoom(QAxWidget):
                     # 과거 일봉들이 120일 이평선보다 밑에 있는지 확인.
                     # 만약 주가가 120일 이평선보다 위로 가게되면 계산이 진행됨.
                     prev_price = None # 과거의 일봉 저가를 의미함.
+                    price_top_moving = False
                     if bottom_stock_price == True:
                         average_line_120 = 0
                         price_top_moving = False
@@ -407,7 +413,7 @@ class Kiwoom(QAxWidget):
                 code_nm = self.dynamicCall("GetMasterCodeName(Qstring)", code) # 종목코드에 해당하는 종목명을 가져옴.
                       
                 f = open("files/condition_stock.txt","a", encoding="utf8")  # "a"는 이어서 쓰기, "w"는 덮어쓰기    
-                f.write(f"{code}\t{code_nm}\t{self.calcul_data[0][1]}")       
+                f.write(f"{code}\t{code_nm}\t{self.calcul_data[0][1]}\n")       
                 f.close()
                 
             elif pass_success == False:
@@ -435,7 +441,8 @@ class Kiwoom(QAxWidget):
         
         # 요청 후 이벤트 루프 실행
         self.calcuator_event_loop.exec()
-        
+
+            
     def get_code_list_market(self, market_code): # 특정 거래소의 종목코드들을 긁어옴.
         code_list = self.dynamicCall("GetCodeListByMarket(QString)", market_code)
         code_list = code_list.split(";")[:-1]
@@ -452,4 +459,24 @@ class Kiwoom(QAxWidget):
             print(f"{idx+1} / {len(code_list)} : KOSDAQ Stock Code : {code} is updating... ")
             
             self.day_kiwoom_db(code=code)
-     
+            
+            
+    def read_code(self): # 저장된 종목들 불러오기
+        if os.path.exists("files/condition_stock.txt"):
+            f = open("files/condition_stock.txt", "r" ,encoding="utf8") # 텍스트 파일에 저장된 종목 정보를 라인별로 모두 가져옴.
+            
+            
+            lines = f.readlines()
+            for line in lines:
+                if line != "":
+                    ls = line.split("\t") # 종목코드 종목명 현재가로 구분 시킴.
+                    
+                    stock_code = ls[0]
+                    stock_name = ls[1]
+                    stock_price = int(ls[2].split("\n")[0])
+                    stock_price = abs(stock_price) # 현재가에 -가 붙어있는 경우가 있음. 절댓값을 씌워줌.
+                    
+                    self.portfolio_stock_dict.update({stock_code : {"종목명" : stock_name}, "현재가" : stock_price})
+                
+                f.close()
+                print(self.portfolio_stock_dict)
